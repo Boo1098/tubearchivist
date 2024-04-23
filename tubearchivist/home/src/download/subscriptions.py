@@ -38,7 +38,11 @@ class ChannelSubscription:
         return all_channels
 
     def get_last_youtube_videos(
-        self, channel_id, limit=True, query_filter=VideoTypeEnum.UNKNOWN
+        self,
+        channel_id,
+        limit=True,
+        query_filter=VideoTypeEnum.UNKNOWN,
+        channel_overwrites=None,
     ):
         """get a list of last videos from channel"""
         queries = self._build_queries(query_filter, limit)
@@ -50,18 +54,50 @@ class ChannelSubscription:
                 "skip_download": True,
                 "extract_flat": True,
             }
+
+            vid_type = vid_type_enum.value
+
+            limit_amount = 0
+
+            if channel_overwrites:
+                if (
+                    vid_type == "videos"
+                    and "subscriptions_channel_size" in channel_overwrites
+                ):
+                    limit_amount = channel_overwrites[
+                        "subscriptions_channel_size"
+                    ]
+                if (
+                    vid_type == "shorts"
+                    and "subscriptions_shorts_channel_size"
+                    in channel_overwrites
+                ):
+                    limit_amount = channel_overwrites[
+                        "subscriptions_shorts_channel_size"
+                    ]
+                if (
+                    vid_type == "streams"
+                    and "subscriptions_live_channel_size" in channel_overwrites
+                ):
+                    limit_amount = channel_overwrites[
+                        "subscriptions_live_channel_size"
+                    ]
+
             if limit:
                 obs["playlistend"] = limit_amount
 
-            vid_type = vid_type_enum.value
-            channel = YtWrap(obs, self.config).extract(
-                f"https://www.youtube.com/channel/{channel_id}/{vid_type}"
-            )
-            if not channel:
-                continue
-            last_videos.extend(
-                [(i["id"], i["title"], vid_type) for i in channel["entries"]]
-            )
+            if not limit or limit_amount > 0:
+                channel_query = YtWrap(obs, self.config).extract(
+                    f"https://www.youtube.com/channel/{channel_id}/{vid_type}"
+                )
+                if not channel_query:
+                    continue
+                last_videos.extend(
+                    [
+                        (i["id"], i["title"], vid_type)
+                        for i in channel_query["entries"]
+                    ]
+                )
 
         return last_videos
 
@@ -86,10 +122,6 @@ class ChannelSubscription:
             return queries
 
         for query_item, default_limit in limit_map.items():
-            if not default_limit:
-                # is deactivated in config
-                continue
-
             if limit:
                 query_limit = default_limit
             else:
@@ -115,7 +147,10 @@ class ChannelSubscription:
         for idx, channel in enumerate(all_channels):
             channel_id = channel["channel_id"]
             print(f"{channel_id}: find missing videos.")
-            last_videos = self.get_last_youtube_videos(channel_id)
+            last_videos = self.get_last_youtube_videos(
+                channel_id,
+                channel_overwrites=channel.get("channel_overwrites"),
+            )
 
             if last_videos:
                 for video_id, _, vid_type in last_videos:
